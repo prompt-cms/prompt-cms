@@ -7,3 +7,10 @@ allowBuilds:
   '@parcel/watcher': true
   lmdb: true
   msgpackr-extract: true
+  '@openrouter/sdk': true
+
+minimumReleaseAgeExclude:
+  - '@tanstack/ai-event-client@1.0.1'
+  - '@tanstack/ai-openrouter@1.1.1'
+  - '@tanstack/ai-utils@1.1.0'
+  - '@tanstack/ai@1.2.0'

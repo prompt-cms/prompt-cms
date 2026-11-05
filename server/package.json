@@ -17,7 +17,12 @@
     "vitest": "^5.1.0"
   },
   "dependencies": {
+    "@a2ui/agent": "^0.1.0",
+    "@ag-ui/core": "1.0.0",
     "@hono/node-server": "^2.1.6",
-    "hono": "^4.13.16"
+    "@tanstack/ai": "1.2.0",
+    "@tanstack/ai-openrouter": "1.1.1",
+    "hono": "^4.13.16",
+    "zod": "^4.6.7"
   }
 }

@@ -51,11 +51,11 @@
 |---|---|---|
 | Runtime | **Node.js** (22+) | No platform lock-in; Hono runs natively |
 | HTTP framework | **Hono** | Lightweight, TS-first, built-in `streamSSE` helper — proven pattern for AG-UI endpoints |
-| Agent SDK | **TanStack AI** (`@tanstack/ai`, v1.1.0) | Selected over Vercel AI SDK, Mastra, `@openrouter/agent`, Google ADK-js, and Cloudflare Agents SDK. Decisive reasons: (a) **native AG-UI compliance in both directions** — server→client events are AG-UI events imported from `@ag-ui/core`, and client→server requests are AG-UI `RunAgentInput`; no bridge or adapter needed; (b) first-class OpenRouter adapter (`@tanstack/ai-openrouter`) backed by an official OpenRouter/TanStack partnership; (c) Zod-typed `toolDefinition()` tools; (d) runs on plain Node.js + Hono (explicitly supported); (e) MIT license. Caveat: young — 1.0 shipped Oct 2026, volunteer maintainers |
+| Agent SDK | **TanStack AI** (`@tanstack/ai`, v1.2.0) | Selected over Vercel AI SDK, Mastra, `@openrouter/agent`, Google ADK-js, and Cloudflare Agents SDK. Decisive reasons: (a) **native AG-UI compliance in both directions** — server→client events are AG-UI events imported from `@ag-ui/core`, and client→server requests are AG-UI `RunAgentInput`; no bridge or adapter needed; (b) first-class OpenRouter adapter (`@tanstack/ai-openrouter`) backed by an official OpenRouter/TanStack partnership; (c) Zod-typed `toolDefinition()` tools; (d) runs on plain Node.js + Hono (explicitly supported); (e) MIT license. Caveat: young — 1.0 shipped Oct 2026, volunteer maintainers; ships bundled agent skills (`skills/ai-core/*/SKILL.md`) as first-party API docs |
 | Model access | **`@tanstack/ai-openrouter`** | First-class OpenRouter adapter: 300+ models, provider ordering, fallbacks, model variants |
 | AG-UI bridge | **None needed** | TanStack AI's wire protocol *is* AG-UI (both directions). Any AG-UI client (our CopilotKit Angular client) can call a `@tanstack/ai` endpoint unmodified. Only a tiny mapping of the `generate_ui` tool result → `ACTIVITY_SNAPSHOT` (`a2ui-surface`) may be needed — verify at install time whether current versions emit it natively |
-| Schema validation | **Zod** | Tool input/output schemas, `RunAgentInput` parsing, A2UI operation validation |
-| UI payload | **A2UI** (`@a2ui/web_core` server-side validation) | Declarative, LLM-friendly, streaming-first; safe (no arbitrary code execution on client) |
+| Schema validation | **Zod** (v4, TanStack-facing) + **`@a2ui/agent`** (A2UI validation) | Zod for tool envelope + `RunAgentInput`; A2UI payload validation delegated to the official SDK (spec-exact, maintained by the A2UI team) |
+| UI payload | **A2UI** via **`@a2ui/agent`** (`validatePayload` + `promptSnippet`) | Declarative, LLM-friendly, streaming-first; safe (no arbitrary code execution on client). Validation, prompt content, and catalog handling come from the official SDK — no hand-mirrored schema to maintain |
 
 **Alternatives considered and rejected:**
 
@@ -82,9 +82,11 @@
 (used by CopilotKit, whose makers co-created AG-UI) is:
 
 1. The LLM emits A2UI operations as **tool-call arguments** (tool: `generate_ui`).
-2. A **server-side tool** validates the operations with Zod against the A2UI schema.
-   Validation errors are fed back to the model for retry — **only valid structures
-   reach the client**. Never let the LLM emit raw UI JSON straight to the browser.
+2. A **server-side tool** validates the operations with the official **`@a2ui/agent`**
+   SDK (`validatePayload(catalogs, messages)` — spec-exact, the same validation the
+   Angular renderer's `@a2ui/web_core` schemas are generated from). Validation
+   errors are fed back to the model for retry — **only valid structures reach the
+   client**. Never let the LLM emit raw UI JSON straight to the browser.
 3. Valid operations travel inside an AG-UI **`ACTIVITY_SNAPSHOT`** message with
    `activityType: 'a2ui-surface'`.
 4. On the client, an **activity renderer** component receives the operations and
@@ -150,13 +152,18 @@ prompt-cms/
 ├── server/
 │   ├── package.json
 │   └── src/
-│       ├── index.ts              # Hono app, CORS, /chat route
-│       ├── agent.ts              # TanStack AI chat() setup (adapter, instructions, tools)
-│       ├── agent-prompt.ts       # System prompt builder (tool contract, schema summary, examples)
+│       ├── main.ts               # @hono/node-server entry (port 8787)
+│       ├── index.ts              # createApp() factory + /health (tests inject a mock adapter)
+│       ├── agent.ts              # runUiAgent(): TanStack chat() + injectable adapter + loop guard
+│       ├── agent-prompt.ts       # System prompt builder (tool contract + SDK promptSnippet + guardrails)
 │       ├── tools/
-│       │   └── generate-ui.ts    # Zod-validated A2UI generation tool (toolDefinition)
+│       │   └── generate-ui.ts    # generate_ui tool (thin Zod envelope; validation via @a2ui/agent)
+│       ├── a2ui/
+│       │   ├── index.ts          # Thin wrapper: catalog loading, validateA2uiPayload(), getPromptSnippet()
+│       │   └── spec/             # Vendored official spec fixtures (catalog.json, example-login-form.json)
 │       ├── a2ui-snapshot.ts      # generate_ui tool result → ACTIVITY_SNAPSHOT mapping
-│       └── chat-route.ts         # /chat route + SSE response glue
+│       ├── chat-route.ts         # /chat route: RunAgentInput validation + SSE + RUN_ERROR handling
+│       └── test-fixtures.ts      # Shared minimal-valid-A2UI-operations fixture for tests
 └── client/
     ├── package.json
     └── src/
@@ -178,17 +185,22 @@ prompt-cms/
 Executed results:
 
 - **TanStack AI (chosen):**
-  - `@tanstack/ai@1.1.0` — stable 1.0 line (1.0 shipped Oct 2026); peer: `@opentelemetry/api >= 1.9.0`
-  - `@tanstack/ai-openrouter@1.1.0` — peers on `@tanstack/ai@^1.1.0` ✅ compatible
+  - `@tanstack/ai@1.2.0` — stable 1.0 line (1.0 shipped Oct 2026; 1.2.0 published 2026-11-05, **pinned exact** in `server/package.json`); peer: `@opentelemetry/api >= 1.9.0`
+  - `@tanstack/ai-openrouter@1.1.1` — peers on `@tanstack/ai@^1.2.0` ✅ compatible (note: the adapter version lags the core — 1.1.x peers on 1.2.0)
   - `@tanstack/ai-angular@1.0.1` — peers on `@tanstack/ai@^1.0.1`, `@angular/core >= 21.0.0` ✅ compatible
-  - **AG-UI compliance (verified against `@tanstack/ai@1.1.0` dist, 2026-11-05):**
+  - **AG-UI compliance (verified against `@tanstack/ai` dist, 2026-11-05):**
     - ✅ Event types are **imported directly from `@ag-ui/core`** (`ActivitySnapshotEvent`, `RunStartedEvent`, `ToolCallResultEvent`, …) — full native AG-UI type compliance.
     - ✅ `ACTIVITY_SNAPSHOT` is a first-class event type (spec keys: `messageId`, `activityType`, `content`, `replace` — exactly AG-UI 1.0); the client-side stream processor handles it.
-    - ⚠️ **Server-side `chat()` does NOT auto-emit `ACTIVITY_SNAPSHOT` for tool results** — `buildToolResultChunks()` emits `TOOL_CALL_RESULT` (with `TOOL_CALL_START/ARGS/END` fan-out). → The small `a2ui-snapshot.ts` mapping (PLAN Step 8a) **is required**: intercept the `generate_ui` tool result and emit `ACTIVITY_SNAPSHOT` with `activityType: 'a2ui-surface'`.
+    - ⚠️ **Server-side `chat()` does NOT auto-emit `ACTIVITY_SNAPSHOT` for tool results** — `buildToolResultChunks()` emits `TOOL_CALL_RESULT` (with `TOOL_CALL_START/ARGS/END` fan-out). → The small `a2ui-snapshot.ts` mapping (part of PLAN Step 8) **is required**: intercept the `generate_ui` tool result and emit `ACTIVITY_SNAPSHOT` with `activityType: 'a2ui-surface'`.
     - ℹ️ Alternative native paths noted: tools get `ctx.emitCustomEvent(name, value)` (emits AG-UI `CUSTOM` events), and TanStack has a first-class `ActivityPart` (`type: 'activity'`, `activityType` + `content`) that serializes into AG-UI `ActivityMessage` wire rows. The `TOOL_CALL_RESULT` → `ACTIVITY_SNAPSHOT` transform remains the simplest fit for the CopilotKit convention.
     - ℹ️ `@tanstack/ai` ships a `testing/` directory (e.g. `fake-text.js`) — useful for the Step 7 mock-adapter tests.
-- **AG-UI packages:** `@ag-ui/core@1.0.3`, `@ag-ui/client@1.0.3`, `@ag-ui/mastra@2.0.2`, `@ag-ui/langgraph`, `@ag-ui/llamaindex`, `@ag-ui/crewai`, etc.
+- **AG-UI packages:** `@ag-ui/core@1.0.0` (**pinned exact** — `@tanstack/ai@1.2.0` depends on it exactly, so the direct server dependency dedupes to a single instance), `@ag-ui/client@1.0.3`, `@ag-ui/mastra@2.0.2`, `@ag-ui/langgraph`, `@ag-ui/llamaindex`, `@ag-ui/crewai`, etc.
 - **Evaluated alternatives:** `@openrouter/ai-sdk-provider@3.1.0` (v7-only, but no AG-UI adapter exists — `@ag-ui/vercel-ai-sdk` is an unmerged roadmap item, ag-ui issue #933 / PR #1626).
+- **A2UI agent SDK (chosen for A2UI validation + prompt content):**
+  - `@a2ui/agent@0.1.0` — published 2026-11-02; deps: `@a2ui/web_core@^0.15.0` + `antlr4`. No peer dependencies.
+  - Official SDK used by the A2UI team's own samples (e.g. `restaurant_finder`): catalog loaded from the **spec JSON** (`CatalogConfig.fromPath`), prompt content generated from the catalog (`processor.promptSnippet`), spec-exact validation (`validatePayload(catalogs, messages)` for one-shot tool-argument checks), and a built-in retry pattern (`retryQuery`).
+  - Validation, prompt content, and catalog handling come from the official SDK (`@a2ui/agent`) — spec-exact by construction.
+  - ⚠️ **Zod multi-install:** three copies in the lockfile — `zod@3.25.76` (`@a2ui/web_core` chain), `zod@4.6.7` (our server code), `zod@4.6.6` (`@modelcontextprotocol/*` chain, transitive via `@tanstack/ai`'s MCP support). pnpm isolates them — acceptable because the integration boundary is plain JSON (tool arguments), never Zod schema objects. Import-hygiene rule: never import Zod-typed values from the SDK/MCP chains into TanStack-facing code.
 
 **Consequence:** TanStack AI is the primary choice — no AG-UI bridge needed.
 Fallback: Mastra (published `@ag-ui/mastra@2.0.2` adapter) if TanStack AI proves
@@ -197,15 +209,16 @@ too immature during the POC.
 ### Server
 
 ```bash
-pnpm add @tanstack/ai @tanstack/ai-openrouter @ag-ui/core zod hono @hono/node-server
+pnpm add @tanstack/ai @tanstack/ai-openrouter @a2ui/agent @ag-ui/core@1.0.0 --save-exact zod hono @hono/node-server
 ```
 
 | Package | Purpose |
 |---|---|
 | `@tanstack/ai` | Core: `chat()`, streaming, tool system, agent loop strategies |
 | `@tanstack/ai-openrouter` | OpenRouter adapter (`openRouterText`, provider ordering/fallbacks) |
-| `@ag-ui/core` | AG-UI event types (TanStack emits these natively; used for snapshot mapping + contract tests) |
-| `zod` | Tool schemas + A2UI validation |
+| `@a2ui/agent` | Official A2UI agent SDK: catalog loading (spec JSON), `validatePayload` (spec-exact validation), `promptSnippet` (prompt content) |
+| `@ag-ui/core` | AG-UI event types (TanStack emits these natively; used for snapshot mapping + contract tests). **Pin `1.0.0` exact** — `@tanstack/ai@1.2.0` depends on `@ag-ui/core@1.0.0` exactly, so a direct dep at the same version dedupes to a single instance (a different version would create a second copy — same structural-typing hazard as the dual Zod) |
+| `zod` | Tool envelope schemas + `RunAgentInput` parsing (Zod 4; the SDK chain brings its own Zod 3) |
 | `hono` + `@hono/node-server` | HTTP server + SSE response glue |
 
 ### Client
@@ -234,44 +247,58 @@ can be iterated on independently (see Step 14 real-model E2E).
 
 ```typescript
 // server/src/agent-prompt.ts
-import { a2uiPromptSummary } from './a2ui/schema.js'; // compact schema summary from Step 5
+import { getPromptSnippet } from './a2ui/index.js'; // SDK-generated prompt content (Step 5 wrapper)
+
+export const UI_AGENT_TOOL_NAME = 'generate_ui';
 
 export function buildSystemPrompt(): string {
   return [
     'You are a UI generation assistant.',
-    'When the user asks for an interface, dashboard, or form, generate it by',
-    'calling the generate_ui tool with A2UI operations.',
+    `When the user asks for an interface, dashboard, or form, generate it by`,
+    `calling the ${UI_AGENT_TOOL_NAME} tool with A2UI operations.`,
     '',
-    '## A2UI message structure',
-    'Emit beginRendering, updateComponents, and updateDataModel messages.',
-    a2uiPromptSummary, // component schema summary (Text, Row, Column, Button, TextInput, ...)
-    '',
-    '## Example surface',
-    EXAMPLE_SURFACE_JSON, // 1-2 complete, valid A2UI documents (few-shot)
+    '## A2UI format rules, catalog schemas, and examples',
+    // DirectJsonPromptGenerator.generate() from @a2ui/agent — format rules,
+    // component schemas, and examples generated from the loaded catalog.
+    // Larger than a hand-written summary; the officially recommended trade-off.
+    getPromptSnippet(),
     '',
     '## Rules',
     '- Only use components from the catalog above.',
     '- Keep surfaces small; update existing surfaces instead of recreating them.',
+    '- After calling the tool, briefly summarize in text what you built or changed.',
   ].join('\n');
 }
 ```
 
 ```typescript
 // server/src/agent.ts
-import { chat } from '@tanstack/ai';
+import { chat, maxIterations, type ModelMessage } from '@tanstack/ai';
 import { openRouterText } from '@tanstack/ai-openrouter';
-import { generateUiTool } from './tools/generate-ui.js';
+import { generateUi } from './tools/generate-ui.js';
 import { buildSystemPrompt } from './agent-prompt.js';
 
-export function runUiAgent(messages, threadId) {
+export const DEFAULT_OPENROUTER_MODEL = 'anthropic/claude-sonnet-4.5';
+export const MAX_AGENT_ITERATIONS = 10;
+
+/** Any text adapter chat() accepts (real OpenRouter or the test fake). */
+export type UiAgentAdapter = Parameters<typeof chat>[0]['adapter'];
+
+export function runUiAgent(
+  messages: Array<ModelMessage>,
+  threadId: string,
+  adapter?: UiAgentAdapter, // injectable — tests pass fakeText() from @tanstack/ai/testing
+) {
+  const model = (process.env.OPENROUTER_MODEL ??
+    DEFAULT_OPENROUTER_MODEL) as typeof DEFAULT_OPENROUTER_MODEL;
+
   return chat({
-    adapter: openRouterText(process.env.OPENROUTER_MODEL ?? 'anthropic/claude-sonnet-4.5'),
+    adapter: adapter ?? openRouterText(model),
     systemPrompts: [buildSystemPrompt()], // TanStack: system text goes here (no system role in ModelMessage)
     messages,
     threadId,
-    tools: [generateUiTool],
-    // agent loop strategy: keep calling tools until none are requested
-    maxSteps: 10, // loop guard
+    tools: [generateUi],
+    agentLoopStrategy: maxIterations(MAX_AGENT_ITERATIONS), // loop guard for the validate-and-retry cycle
   });
 }
 ```
@@ -280,58 +307,130 @@ The adapter reads `OPENROUTER_API_KEY` from the environment. Model choice,
 provider ordering, and fallbacks are configured via `modelOptions` on the
 adapter call (see `@tanstack/ai-openrouter` docs).
 
-### 6.2 A2UI validation tool (`server/src/tools/generate-ui.ts`)
+### 6.2 `generate_ui` tool (`server/src/tools/generate-ui.ts` — implemented, see PLAN Step 6)
+
+The tool keeps only a **minimal Zod envelope** — real, spec-exact validation
+happens in the handler via the `@a2ui/agent` SDK. Invalid operations return a
+structured error result (not a throw), so the model can retry within the agent
+loop:
 
 ```typescript
 import { toolDefinition } from '@tanstack/ai';
 import { z } from 'zod';
-// A2UI operation schema — mirror the A2UI v0.9 spec (surface, components, data bindings)
-import { a2uiOperationsSchema } from '../a2ui/schema.js';
+import { validateA2uiPayload } from '../a2ui/index.js';
 
-export const generateUiTool = toolDefinition({
+export const generateUiDef = toolDefinition({
   name: 'generate_ui',
-  description: 'Generate or update a user interface using A2UI operations',
-  inputSchema: a2uiOperationsSchema, // Zod schema of A2UI ops
-  // TanStack isomorphic tools: run on the server
-}).server(async (operations) => {
-  // Validated by Zod before the handler runs.
-  // Return the ops so they can be emitted as ACTIVITY_SNAPSHOT.
-  return { status: 'ok', operations };
+  description:
+    'Create or update a UI surface for the user by sending a list of A2UI ' +
+    'protocol messages (createSurface, updateComponents, updateDataModel, ' +
+    'deleteSurface). Follow the A2UI format rules, component catalog, and ' +
+    'examples given in the system prompt…',
+  inputSchema: z.object({
+    operations: z.array(z.unknown()).meta({
+      description: 'Ordered list of A2UI protocol messages (see system prompt)',
+    }),
+  }),
+  outputSchema: z.discriminatedUnion('status', [
+    z.object({ status: z.literal('ok'), operations: z.array(z.unknown()) }),
+    z.object({ status: z.literal('error'), errorText: z.string() }),
+  ]),
+});
+
+export const generateUi = generateUiDef.server(async ({ operations }) => {
+  const result = validateA2uiPayload(operations);
+  return result.ok
+    ? { status: 'ok' as const, operations }
+    : { status: 'error' as const, errorText: result.errorText };
 });
 ```
 
-On invalid tool arguments the AI SDK surfaces a validation error to the model,
-which retries — invalid UI structures never reach the client.
+> The A2UI format knowledge reaches the model through the system prompt
+> (`getPromptSnippet()`), not through this schema. TanStack additionally
+> validates tool results against `outputSchema` before sending them back to
+> the model, and surfaces envelope-level input-validation failures to the
+> model automatically.
 
-### 6.3 AG-UI endpoint (`server/src/chat-route.ts` + `index.ts`)
+### 6.2a A2UI wrapper (`server/src/a2ui/index.ts` — implemented, see PLAN Step 5)
+
+```typescript
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import {
+  CatalogConfig,
+  DirectJsonPromptGenerator,
+  validatePayload,
+} from '@a2ui/agent';
+
+const CATALOG_PATH = fileURLToPath(new URL('./spec/catalog.json', import.meta.url));
+
+// The v0.9 catalog document does not state a protocol version — pass it explicitly.
+const catalogConfig = CatalogConfig.fromPath(CATALOG_PATH, undefined, 'v0.9');
+export const basicCatalog = catalogConfig.catalog;
+
+export function validateA2uiPayload(operations: unknown) {
+  try {
+    validatePayload([basicCatalog], operations);
+    return { ok: true } as const;
+  } catch (error) {
+    return {
+      ok: false,
+      errorText: error instanceof Error ? error.message : String(error),
+    } as const;
+  }
+}
+
+export function getPromptSnippet(): string {
+  return new DirectJsonPromptGenerator([basicCatalog]).generate();
+}
+```
+
+> Verified against the installed `@a2ui/agent@0.1.0`: `validatePayload` throws on
+> invalid payloads; the loaded catalog exposes `components`/`functions` as Maps
+> (18 / 14 entries) and `protocolVersion: 'v0.9'`; the message envelope carries
+> `version` at the message level. Import hygiene: the SDK chain uses Zod 3 — the
+> boundary here is plain JSON, never Zod schema objects.
+
+### 6.3 AG-UI endpoint (`server/src/chat-route.ts` + `index.ts` — implemented, see PLAN Step 8)
 
 ```typescript
 import { Hono } from 'hono';
-import { toServerSentEventsResponse } from '@tanstack/ai';
-import { runUiAgent } from './agent.js';
-import { toA2uiSnapshot } from './a2ui-snapshot.js';
+import { cors } from 'hono/cors';
+import { RunAgentInputSchema } from '@ag-ui/core/schemas';
+import { EventType, toServerSentEventsResponse, type StreamChunk } from '@tanstack/ai';
+import { mapA2uiSnapshots } from './a2ui-snapshot.js';
+import { runUiAgent, type UiAgentAdapter } from './agent.js';
 
-const app = new Hono();
+export function registerChatRoute(app: Hono, options: { adapter?: UiAgentAdapter } = {}) {
+  app.use('/chat', cors({ origin: 'http://localhost:4200', allowHeaders: ['Content-Type'] }));
 
-app.post('/chat', async (c) => {
-  const input = await c.req.json(); // AG-UI RunAgentInput
-  // chat() emits AG-UI events natively; toServerSentEventsResponse wraps
-  // the stream as an SSE Response. toA2uiSnapshot maps generate_ui tool
-  // results to ACTIVITY_SNAPSHOT (activityType: 'a2ui-surface') events.
-  const stream = runUiAgent(input.messages, input.threadId)
-    .pipeThrough(toA2uiSnapshot());
-  return toServerSentEventsResponse(stream);
-});
+  app.post('/chat', async (c) => {
+    const parsed = RunAgentInputSchema.safeParse(await c.req.json());
+    if (!parsed.success) return c.json({ error: 'Invalid RunAgentInput', issues: parsed.error.issues }, 400);
 
-export default app; // served via @hono/node-server
+    // chat() emits AG-UI events natively; mapA2uiSnapshots appends an
+    // ACTIVITY_SNAPSHOT (activityType: 'a2ui-surface') after each successful
+    // generate_ui tool result. Synchronous agent failures (e.g. missing API
+    // key) stream a RUN_ERROR frame in-band instead of an HTTP 500.
+    let stream: AsyncIterable<StreamChunk>;
+    try {
+      stream = mapA2uiSnapshots(
+        runUiAgent(toModelMessages(parsed.data.messages), parsed.data.threadId, options.adapter),
+      ) as AsyncIterable<StreamChunk>;
+    } catch (error) {
+      stream = (async function* () {
+        yield { type: EventType.RUN_ERROR, message: error instanceof Error ? error.message : 'Agent failed to start' };
+      })();
+    }
+    return toServerSentEventsResponse(stream);
+  });
+}
 ```
 
-CORS: restrict to the Angular dev-server origin (e.g. `http://localhost:4200`);
-`origin: '*'` only for local POC.
-
-> **Note:** the exact composition API (`toServerSentEventsResponse`, stream
-> transform shape) must be verified against the installed `@tanstack/ai@1.1.0`
-> docs at implementation time — the sketch reflects the documented 1.0 patterns.
+CORS: restricted to the Angular dev-server origin (`http://localhost:4200`).
+Input is validated with `@ag-ui/core/schemas` (`RunAgentInputSchema`) — 400
+before the stream starts on invalid bodies. SSE frames are `data: {json}\n\n`,
+spec-stripped by TanStack's serializer.
 
 ---
 
@@ -406,13 +505,15 @@ pnpm --filter client start       # Angular dev server on http://localhost:4200
 
 | Risk | Mitigation |
 |---|---|
-| **LLM output quality depends heavily on prompt quality** (A2UI structure + catalog knowledge must reach the model) | System prompt is a dedicated module (`agent-prompt.ts`): tool contract + schema summary + few-shot example surfaces; iterate on it during the Step 14 real-model E2E |
+| **LLM output quality depends heavily on prompt quality** (A2UI structure + catalog knowledge must reach the model) | System prompt is a dedicated module (`agent-prompt.ts`): tool contract + **SDK-generated `promptSnippet`** (format rules, catalog schemas, examples — the officially recommended content) + guardrails; iterate on it during the Step 14 real-model E2E |
 | **TanStack AI youth** — 1.0 shipped Oct 2026, ~553k weekly downloads, volunteer maintainers; API churn possible | Pin exact versions in lockfile; keep TanStack usage isolated in `agent.ts` + `chat-route.ts`; Mastra (`@ag-ui/mastra@2.0.2`) is the documented fallback |
-| **`ACTIVITY_SNAPSHOT` support unverified** — older TanStack 0.x docs list `CUSTOM` events but not `ACTIVITY_SNAPSHOT` (AG-UI 1.0 event) | Step 1 verification item: check whether `@tanstack/ai@1.1.0` emits it natively; if not, map the `generate_ui` tool result ourselves in `a2ui-snapshot.ts` (tiny module) |
-| **A2UI maturity** — v0.9 is "early stage public preview"; v1.0 spec is a release candidate; expect churn | Pin versions; isolate A2UI schema in one server module; isolate renderer config in one client module |
+| **`ACTIVITY_SNAPSHOT` support unverified** — older TanStack 0.x docs list `CUSTOM` events but not `ACTIVITY_SNAPSHOT` (AG-UI 1.0 event) | ~~Step 1 verification item~~ → **RESOLVED (2026-11-05)**: TanStack emits tool results as `TOOL_CALL_RESULT`, not `ACTIVITY_SNAPSHOT` — the small `a2ui-snapshot.ts` mapping (part of PLAN Step 8) is required |
+| **A2UI maturity** — v0.9 is "early stage public preview"; v1.0 spec is a release candidate; expect churn | Validation, prompt content, and catalog handling delegated to the **official `@a2ui/agent` SDK** (spec-exact by construction; a spec bump = SDK version bump). Renderer config isolated in one client module. The SDK is the same machinery the A2UI team's own samples use |
+| **`@a2ui/agent` youth** — v0.1.0, published 2026-11-02 (days old) | It is the official SDK the official samples depend on; pin the version. If it proves unstable, the SDK usage is isolated in the thin `server/src/a2ui/index.ts` wrapper, so a replacement (e.g. a hand-mirrored Zod schema) is a contained change |
+| **Zod multi-install** — three copies in the lockfile: `zod@3.25.76` (`@a2ui/web_core` chain), `zod@4.6.7` (our server code), `zod@4.6.6` (`@modelcontextprotocol/*` chain, transitive via `@tanstack/ai`'s MCP support) | pnpm installs them side by side; the integration boundary is plain JSON (tool arguments), never Zod schema objects. Import-hygiene rule: never import Zod-typed values from the SDK/MCP chains into TanStack-facing code |
 | **A2UI-over-AG-UI convention is not formally standardized** (`ACTIVITY_SNAPSHOT` + `activityType: 'a2ui-surface'` is the de-facto CopilotKit pattern) | Follow the CopilotKit/angular-architects reference implementation; document our convention in code |
 | **Basic Catalog ≠ Material look** | Accept for POC; custom Material catalog is a post-POC workstream |
-| **LLM generating invalid A2UI** | Server-side Zod validation + model retry loop (built into the tool design) |
+| **LLM generating invalid A2UI** | Spec-exact `validatePayload` in the tool handler + error text fed back to the model; TanStack's `agentLoopStrategy: maxIterations()` loop provides the retry behavior |
 | **Prompt-injection via generated UI** | A2UI is declarative — no arbitrary code execution on client by design; actions are allow-listed |
 
 **Explicitly out of POC scope:** persistence (in-memory conversation state only),
@@ -429,6 +530,7 @@ deployment.
   - A2UI + AG-UI integration: https://www.angulararchitects.io/en/blog/integrating-a2ui-with-ag-ui-in-angular/
   - AG-UI end-to-end (server + client): https://www.angulararchitects.io/en/blog/ag-ui-in-practice-ag-ui-end-to-end-connecting-server-and-client/
 - A2UI: https://github.com/a2ui-project/a2ui · https://a2ui.org
+- `@a2ui/agent` SDK (A2UI validation + prompt content): https://www.npmjs.com/package/@a2ui/agent — official sample using it: `samples/agent/restaurant_finder` in the a2ui repo
 - AG-UI: https://github.com/ag-ui-protocol/ag-ui · https://docs.ag-ui.com
 - TanStack AI (chosen): https://tanstack.com/ai/latest · https://github.com/TanStack/ai
   - OpenRouter adapter: https://tanstack.com/ai/latest/docs/adapters/openrouter
