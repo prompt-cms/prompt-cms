@@ -4,10 +4,10 @@
 > **testable result**. Automated tests are mandatory for every code step — run them
 > before declaring the step done.
 >
-> **Test tooling convention:** server tests use **Vitest** (Node 22+, ESM, fast, native
-> TS via `vite-tsconfig-paths`/`unplugin` not needed — plain `vitest` + `tsx`).
-> Angular client tests use **Jasmine/Karma** (Angular CLI default) unless the scaffold
-> ships Vitest-based `ng test` (Angular 20+ option) — follow whatever `ng new` generates.
+> **Test tooling convention:** server tests use **Vitest** (Node 22+, ESM).
+> Angular client tests also use **Vitest** — Angular 22's `ng test` ships Vitest-based
+> (vitest + jsdom) by default; no Jasmine/Karma. Run client tests via
+> `pnpm --filter client exec ng test --watch=false` (pnpm flag-passing quirk).
 > Server HTTP tests use Hono's built-in `app.request()` — no running server needed.
 
 ---
@@ -40,11 +40,12 @@
 - **Automated tests:** `server/src/index.test.ts` — `app.request('/health')` returns 200 and JSON body `{ status: 'ok' }`. ✅ 3/3 passed (2 smoke + 1 health).
 - **Verify:** `pnpm --filter server test` passes ✅; `pnpm --filter server build` compiles clean ✅; `pnpm --filter server dev` + `curl localhost:8787/health` → `{"status":"ok"}` HTTP 200 ✅.
 
-### Step 4: Angular client scaffold
+### Step 4: Angular client scaffold — ✅ DONE (2026-11-05)
 - **Do:** `ng new client` (standalone, no SSR) inside the workspace; register it as a workspace package. Add Angular Material (`ng add @angular/material`) with a prebuilt theme. Keep the default app component rendering.
+- **Result:** Scaffolded with **Angular 22.2** (standalone, no SSR, pnpm package manager). `ng test` ships **Vitest-based** (vitest + jsdom) — matches the server convention, no Jasmine/Karma. Material added manually (v22 M3 prebuilt theme `azure-blue.css`, `provideAnimationsAsync()`, Roboto + Material Icons fonts); `ng add` was skipped in favor of direct installs. Notes: (a) `@angular/animations` had to be added explicitly (not in the default scaffold, required by `provideAnimationsAsync`); (b) `allowBuilds` gained `@parcel/watcher`, `lmdb`, `msgpackr-extract`; (c) pnpm flag-passing quirk — use `pnpm --filter client exec ng test --watch=false`, not `pnpm --filter client test -- --watch=false`.
 - **Deliverable:** Angular app builds and its default test suite passes.
-- **Automated tests:** The scaffold's initial `app.component.spec.ts` (renders, title check).
-- **Verify:** `pnpm --filter client build` and `pnpm --filter client test -- --watch=false` pass; `pnpm --filter client start` serves the app.
+- **Automated tests:** The scaffold's initial `app.spec.ts` (renders, title check). ✅ 2/2 passed (vitest 5.1.0).
+- **Verify:** `pnpm --filter client build` ✅ (1.1s); `pnpm --filter client exec ng test --watch=false` ✅; `ng serve` on :4200 → HTTP 200 with `<app-root>` ✅.
 
 ---
 
