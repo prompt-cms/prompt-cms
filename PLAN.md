@@ -135,7 +135,8 @@
 ## Phase 3 — Integration & hardening
 
 ### Step 14: End-to-end smoke (manual, real model)
-- **Do:** With `OPENROUTER_API_KEY` set (never committed; `.env` gitignored), run server + client and drive the **5-prompt canned suite** below. Confirm: streamed chat text, generated UI appears in the right pane, a follow-up prompt updates the UI, and a button click in the generated UI round-trips to the agent.
+- **Do (one-time env setup — ✅ DONE 2026-11-05):** Root `.env` (gitignored, user-created) + `.env.example` with `OPENROUTER_API_KEY` and `OPENROUTER_MODEL`. Loaded via Node's built-in flag in the server dev script — no `dotenv` dependency: `"dev": "tsx watch --env-file-if-exists=../.env src/main.ts"`. Verified: both vars load (quotes stripped by Node's parser), server boots with no key error. Documented in SETUP.md §8.
+- **Do (main):** With `OPENROUTER_API_KEY` set (never committed; `.env` gitignored), run server + client and drive the **5-prompt canned suite** below. Confirm: streamed chat text, generated UI appears in the right pane, a follow-up prompt updates the UI, and a button click in the generated UI round-trips to the agent.
 - **Pass criteria (measurable, not vibes-based):**
   1. All 5 prompts complete a run with `RUN_FINISHED` (no `RUN_ERROR`).
   2. **≥ 4 of 5 prompts produce a valid A2UI surface on the first tool call** (no validation-retry needed — observable via the server log or by counting `TOOL_CALL_START` events per run).

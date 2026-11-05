@@ -483,7 +483,20 @@ User interactions (A2UI Actions) are posted back to the agent as new messages.
 | Variable | Where | Purpose |
 |---|---|---|
 | `OPENROUTER_API_KEY` | server | OpenRouter API access |
-| `OPENROUTER_MODEL` (optional) | server | Model override (e.g. `anthropic/claude-sonnet-4.5`) |
+| `OPENROUTER_MODEL` (optional) | server | Model override (e.g. `anthropic/claude-haiku-5.5`) |
+
+**Loading mechanism:** a root `.env` file (gitignored; see `.env.example` for the
+expected keys) is loaded by the server's dev script via Node's built-in flag —
+no `dotenv` dependency:
+
+```json
+"dev": "tsx watch --env-file-if-exists=../.env src/main.ts"
+```
+
+`--env-file-if-exists` (Node 22+) doesn't fail when the file is absent, so
+tests and CI keep working without it. Node's parser trims whitespace and
+strips surrounding quotes, so `OPENROUTER_MODEL = "..."` in `.env.example`'s
+style parses cleanly. Automated tests never need the key (mock adapter).
 
 Never commit credentials; use `.env` (gitignored) or injected secrets.
 
