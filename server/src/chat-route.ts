@@ -26,6 +26,7 @@ import {
 } from '@tanstack/ai';
 
 import { mapA2uiSnapshots } from './a2ui-snapshot.js';
+import { singleRunFinish } from './run-finish.js';
 import { runUiAgent, type UiAgentAdapter } from './agent.js';
 
 export const CHAT_ROUTE_PATH = '/chat';
@@ -60,6 +61,34 @@ export function toModelMessages(messages: Message[]): ModelMessage[] {
     }
   }
   return out;
+}
+
+/** Activity type used for the A2UI surface snapshots (PLAN Step 8 convention). */
+export const A2UI_ACTIVITY_TYPE = 'a2ui-surface';
+
+/**
+ * Extracts the latest A2UI surface state from the conversation's activity
+ * messages and serializes it as model context.
+ *
+ * Without this, the model cannot know the existing `surfaceId` on follow-up
+ * turns (`toModelMessages` skips activity messages) and would recreate the
+ * surface instead of updating it — PLAN Step 14, pass criterion 3. The latest
+ * snapshot's operations are the most recent state of the surface; the model
+ * targets the same `surfaceId` with `updateComponents`/`updateDataModel`.
+ */
+export function extractSurfaceContext(messages: Message[]): string | undefined {
+  const lastSnapshot = [...messages]
+    .reverse()
+    .find(
+      (m) =>
+        m.role === 'activity' &&
+        (m as { activityType?: string }).activityType === A2UI_ACTIVITY_TYPE,
+    );
+  const ops = (
+    lastSnapshot as { content?: { operations?: unknown } } | undefined
+  )?.content?.operations;
+  if (!Array.isArray(ops) || ops.length === 0) return undefined;
+  return JSON.stringify(ops);
 }
 
 export interface ChatRouteOptions {
@@ -104,7 +133,14 @@ export function registerChatRoute(app: Hono, options: ChatRouteOptions = {}) {
     let stream: AsyncIterable<StreamChunk>;
     try {
       stream = mapA2uiSnapshots(
-        runUiAgent(messages, input.threadId, options.adapter),
+        singleRunFinish(
+          runUiAgent(
+            messages,
+            input.threadId,
+            options.adapter,
+            extractSurfaceContext(input.messages),
+          ),
+        ),
       ) as AsyncIterable<StreamChunk>;
     } catch (error) {
       const message =

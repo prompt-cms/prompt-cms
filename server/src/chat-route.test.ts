@@ -4,6 +4,7 @@ import { EventType } from '@ag-ui/core';
 import { fakeText } from '@tanstack/ai/testing';
 
 import { createApp } from './index.js';
+import { extractSurfaceContext } from './chat-route.js';
 import {
   makeRunAgentInput,
   mockUiAgentAdapter,
@@ -34,18 +35,20 @@ describe('POST /chat', () => {
     const events = await parseSseFrames(res);
     const types = events.map((e) => e.type);
 
-    // RUN_* strictly first/last.
+    // RUN_* strictly first/last, and RUN_FINISHED appears exactly once —
+    // TanStack emits one per model turn; `singleRunFinish` collapses them.
     expect(types[0]).toBe(EventType.RUN_STARTED);
     expect(types.at(-1)).toBe(EventType.RUN_FINISHED);
+    expect(types.filter((t) => t === EventType.RUN_FINISHED)).toHaveLength(1);
 
-    // TOOL_CALL_START/ARGS/END strictly together; the orchestrator emits
-    // TOOL_CALL_RESULT after the first turn's RUN_FINISHED (turn boundary).
+    // TOOL_CALL_START/ARGS/END strictly together; the tool result precedes the
+    // single final RUN_FINISHED (the AG-UI verifier rejects anything after it).
     const toolIdx = types.indexOf(EventType.TOOL_CALL_START);
     expect(toolIdx).toBeGreaterThan(0);
     expect(types[toolIdx + 1]).toBe(EventType.TOOL_CALL_ARGS);
     expect(types[toolIdx + 2]).toBe(EventType.TOOL_CALL_END);
     expect(types).toContain(EventType.TOOL_CALL_RESULT);
-    expect(types.indexOf(EventType.TOOL_CALL_RESULT)).toBeGreaterThan(
+    expect(types.indexOf(EventType.TOOL_CALL_RESULT)).toBeLessThan(
       types.indexOf(EventType.RUN_FINISHED),
     );
 
@@ -109,5 +112,51 @@ describe('POST /chat', () => {
     const events = await parseSseFrames(res);
     const runError = events.find((e) => e.type === EventType.RUN_ERROR);
     expect(runError).toBeDefined();
+  });
+});
+
+describe('extractSurfaceContext', () => {
+  const surfaceActivity = {
+    id: 'act-1',
+    role: 'activity',
+    activityType: 'a2ui-surface',
+    content: {
+      operations: [{ version: 'v0.9', createSurface: { surfaceId: 'dash-1' } }],
+    },
+  };
+
+  it('serializes the latest a2ui-surface snapshot operations', () => {
+    const ctx = extractSurfaceContext([
+      { id: 'm1', role: 'user', content: 'build a dashboard' },
+      surfaceActivity,
+    ]);
+    expect(ctx).toBe(
+      JSON.stringify([{ version: 'v0.9', createSurface: { surfaceId: 'dash-1' } }]),
+    );
+  });
+
+  it('uses the last snapshot when several exist', () => {
+    const later = {
+      ...surfaceActivity,
+      id: 'act-2',
+      content: {
+        operations: [
+          { version: 'v0.9', updateComponents: { surfaceId: 'dash-1' } },
+        ],
+      },
+    };
+    const ctx = extractSurfaceContext([surfaceActivity, later]);
+    expect(ctx).toContain('updateComponents');
+    expect(ctx).not.toContain('createSurface');
+  });
+
+  it('returns undefined without an a2ui-surface activity message', () => {
+    expect(extractSurfaceContext([{ id: 'm1', role: 'user', content: 'hi' }])).toBeUndefined();
+  });
+
+  it('returns undefined when the snapshot has no operations', () => {
+    expect(
+      extractSurfaceContext([{ ...surfaceActivity, content: {} }]),
+    ).toBeUndefined();
   });
 });

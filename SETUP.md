@@ -122,9 +122,13 @@ AI SDK Agent loop:
   3. LLM produces final text summary
   │
   ▼
-TanStack AI emits AG-UI events natively (imported from `@ag-ui/core`):
+TanStack AI emits AG-UI events natively (imported from `@ag-ui/core`), with one
+server-side correction (`run-finish.ts`): TanStack emits a `RUN_FINISHED` chunk
+per model turn, but AG-UI requires exactly one at the end — the transform
+collapses them and aggregates usage:
   RUN_STARTED → TOOL_CALL_START → TOOL_CALL_ARGS (streaming) → TOOL_CALL_END
-  → ACTIVITY_SNAPSHOT (a2ui-surface ops, via tool-result mapping) → TEXT_MESSAGE_* → RUN_FINISHED
+  → TOOL_CALL_RESULT → ACTIVITY_SNAPSHOT (a2ui-surface ops, via tool-result
+  mapping) → TEXT_MESSAGE_* → RUN_FINISHED (single, aggregated usage)
   │
   ▼
 Hono streamSSE writes each event as an SSE frame

@@ -28,11 +28,15 @@ export type UiAgentAdapter = Parameters<typeof chat>[0]['adapter'];
  * @param messages conversation history (from the AG-UI `RunAgentInput`)
  * @param threadId thread identifier for the run
  * @param adapter injectable model adapter (defaults to OpenRouter)
+ * @param surfaceContext serialized A2UI operations of the surface currently on
+ *   screen (from the latest `a2ui-surface` activity message) — lets the model
+ *   update the existing surface instead of recreating it
  */
 export function runUiAgent(
   messages: Array<ModelMessage>,
   threadId: string,
   adapter?: UiAgentAdapter,
+  surfaceContext?: string,
 ) {
   // The adapter's `model` parameter is typed as a union of known model IDs,
   // but `OPENROUTER_MODEL` is a runtime string (any valid OpenRouter slug).
@@ -43,7 +47,7 @@ export function runUiAgent(
 
   return chat({
     adapter: adapter ?? openRouterText(model),
-    systemPrompts: [buildSystemPrompt()],
+    systemPrompts: [buildSystemPrompt(surfaceContext)],
     messages,
     threadId,
     tools: [generateUi],

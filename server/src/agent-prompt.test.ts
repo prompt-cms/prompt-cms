@@ -21,4 +21,18 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('Only use components from the catalog');
     expect(prompt).toContain('update existing surfaces instead of recreating');
   });
+
+  it('injects the current UI state when surface context is provided', () => {
+    const ops = [
+      { version: 'v0.9', createSurface: { surfaceId: 'dash-1' } },
+    ];
+    const prompt = buildSystemPrompt(JSON.stringify(ops));
+    expect(prompt).toContain('## Current UI state');
+    expect(prompt).toContain('createSurface');
+    expect(prompt).toContain('SAME surfaceId');
+  });
+
+  it('omits the current UI state section without surface context', () => {
+    expect(buildSystemPrompt()).not.toContain('## Current UI state');
+  });
 });

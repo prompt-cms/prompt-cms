@@ -16,7 +16,13 @@ import { getPromptSnippet } from './a2ui/index.js';
 
 export const UI_AGENT_TOOL_NAME = 'generate_ui';
 
-export function buildSystemPrompt(): string {
+/**
+ * @param surfaceContext serialized A2UI operations of the surface currently on
+ *   screen (latest `a2ui-surface` snapshot), if any — injected as a
+ *   "Current UI state" section so follow-up prompts update the existing
+ *   surface instead of recreating it
+ */
+export function buildSystemPrompt(surfaceContext?: string): string {
   return [
     'You are a UI generation assistant. You build and update web UIs for the user.',
     '',
@@ -26,10 +32,22 @@ export function buildSystemPrompt(): string {
     '',
     getPromptSnippet(),
     '',
+    ...(surfaceContext
+      ? [
+          '## Current UI state',
+          '',
+          'The user already has a UI on screen. Its latest A2UI operations (from the previous generate_ui call) are:',
+          '```json',
+          surfaceContext,
+          '```',
+          'To modify this UI, call generate_ui with updateComponents/updateDataModel targeting the SAME surfaceId as above — do not create a new surface unless the user explicitly asks for a separate UI.',
+          '',
+        ]
+      : []),
     '## Guardrails',
     '',
     '- Only use components from the catalog above.',
     '- Keep surfaces small; update existing surfaces instead of recreating them.',
-    '- After calling the tool, briefly summarize in text what you built or changed.',
+    '- After calling the tool, briefly summarize in plain prose what you built or changed — never echo the A2UI JSON payload in your text response.',
   ].join('\n');
 }

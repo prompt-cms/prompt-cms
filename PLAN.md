@@ -112,23 +112,27 @@
 - **Automated tests:** `app.component.spec.ts` — component renders the chat element; config provider supplies an agent named `uiAgent`. (Live streaming is verified manually in Step 14.)
 - **Verify:** `pnpm --filter client exec ng test --watch=false` passes; with server running, sending a message in the browser shows a streamed text response (manual smoke).
 
-### Step 11: A2UI renderer configuration (Basic Catalog)
-- **Do:** `client/src/app/a2ui/catalog.ts` — register `@a2ui/angular` renderer: `A2UI_RENDERER_CONFIG` provider with `BasicCatalog`, expose `A2uiRendererService` + `SurfaceComponent` setup. Install `@a2ui/angular` + `@a2ui/web_core` (versions pinned from Step 1).
-- **Deliverable:** Renderer config module.
-- **Automated tests:** `client/src/app/a2ui/catalog.spec.ts` — a test component using the surface renders a **hardcoded static A2UI document** (e.g. a Column with a Text and a Button) without errors; assert the rendered DOM contains the expected text.
-- **Verify:** `pnpm --filter client exec ng test --watch=false` passes.
+- **Result:** ✅ 5/5 client tests passed; build clean; **live real-model smoke passed**: plain-prompt run streams `RUN_STARTED → TEXT_MESSAGE_* → RUN_FINISHED` (model `anthropic/claude-haiku-5.5` from `.env`), and a UI prompt ran the **full loop first-try**: 59 streamed `TOOL_CALL_ARGS` chunks (fine-grained tool streaming), `TOOL_CALL_RESULT` status `ok` (SDK validation passed first try), one `ACTIVITY_SNAPSHOT` (`a2ui-surface`) with 3 valid operations (`createSurface` + 6 components: Column/Text/TextField×2/Button/Text + `updateDataModel`).
+- **Versions:** `@copilotkit/angular@0.6.0` (peers Angular 22 ✓, rxjs ^7.8 ✓); `@ag-ui/client` pinned **exact 1.0.2** to match CopilotKit's bundled copy (it ships `@ag-ui/client@1.0.2` + `@ag-ui/core@1.0.2` as regular deps — a different version would create a dual-instance hazard, same class as the server's `@ag-ui/core` finding). Peer warnings were transitive wasm-runtime noise only.
+- **Build findings:** initial bundle is 4.44 MB (CopilotKit + A2UI + Material) — budgets raised to warn 5MB / error 6MB in `angular.json` (POC-appropriate); `partial-json` + `semver` added to `allowedCommonJsDependencies` (CopilotKit's shared utils). TestBed needs `providers: appConfig.providers` (the config token is bootstrap-scoped).
 
-### Step 12: Activity renderer (`a2ui-surface` → A2UI)
-- **Do:** `client/src/app/a2ui/activity-renderer.component.ts` — CopilotKit activity renderer registered for `activityType: 'a2ui-surface'`: extracts A2UI operations from `ACTIVITY_SNAPSHOT` content and feeds them to `A2uiRendererService`. Wire A2UI Actions (button clicks etc.) to post a new user message back to the agent.
-- **Deliverable:** Activity renderer component.
-- **Automated tests:** `activity-renderer.spec.ts` — (a) given a mock snapshot with valid ops, the component renders the corresponding components (DOM assertions); (b) given an invalid/unknown activityType, it renders nothing and logs a warning; (c) clicking a rendered Button emits the expected action payload (spy on the message-posting service).
-- **Verify:** `pnpm --filter client exec ng test --watch=false` passes.
+### Step 11: A2UI renderer configuration (Basic Catalog) — ✅ DONE (covered by Step 10)
+- **Finding (verified in `@copilotkit/angular@0.6.0` dist):** CopilotKit ships its own A2UI renderer — no separate `@a2ui/angular` install or `A2UI_RENDERER_CONFIG` wiring needed. `@copilotkit/angular/a2ui` exports `basicCatalog` (a `CopilotA2UICatalog` with catalog ID `https://a2ui.org/specification/v0_9/basic_catalog.json`) whose `basicComponents` array contains **all 18 Basic Catalog components** (Text, Image, Icon, Video, AudioPlayer, Row, Column, List, Card, Tabs, Divider, Modal, Button, TextField, CheckBox, ChoicePicker, Slider, DateTimeInput) plus the 14 built-in functions. `provideCopilotKit({ a2ui: { catalog: basicCatalog } })` (already wired in Step 10) activates it.
+- **Deliverable:** None beyond Step 10's config.
+- **Automated tests:** Covered by Step 10's suite (provider config assertions) and the Step 14 E2E (real rendered surface).
 
-### Step 13: Material app shell
+### Step 12: Activity renderer (`a2ui-surface` → A2UI) — ✅ DONE (covered by Step 10)
+- **Finding (verified in `@copilotkit/angular@0.6.0` dist):** CopilotKit **auto-registers** the activity renderer: `#syncBuiltInActivityMessageRenderers()` registers `{ activityType: 'a2ui-surface', component: CopilotA2UIActivityRenderer }` whenever A2UI is active. `CopilotA2UIActivityRenderer` extracts operations from `ACTIVITY_SNAPSHOT` content and renders them via `CopilotA2UISurfaceOutlet`. Rendering is **inline in the chat transcript**: `CopilotChatMessageView` resolves the `activity` message role through `pickActivityRenderer()` and renders the matched component in the message stream — no separate pane by default.
+- **UX note:** Inline rendering is accepted for the POC; extracting the surface to the right pane is deferred to Step 13 polish.
+- **Deliverable:** None beyond Step 10's config.
+- **Automated tests:** Covered by Step 10's suite; real round-trip (button click → agent) verified in Step 14.
+
+### Step 13: Material app shell — ✅ DONE
 - **Do:** `app.component.*` — Material shell per SETUP.md §7.3: `mat-toolbar` ("Prompt CMS"), two-pane layout (chat left, generated-UI surface right), basic theming/responsive split. No business logic — pure presentation.
 - **Deliverable:** Styled shell.
 - **Automated tests:** Update `app.component.spec.ts` — toolbar renders title; both panes exist; layout classes applied.
 - **Verify:** `pnpm --filter client exec ng test --watch=false` passes; visual check via `pnpm --filter client start`.
+- **Result:** ✅ 6/6 client tests passed; build clean; dev server serves HTTP 200 with `<app-root>`. Implementation: `mat-toolbar` (M3 azure-blue prebuilt theme) with title + subtitle, two-pane flex layout (chat 38% / max 480px left, UI pane right), responsive stack below 720px (chat 55% top, border-bottom instead of border-right). Spec asserts `mat-toolbar .title` text, `mat-toolbar.topbar`, `.panes`, and both `section.pane.chat-pane` / `section.pane.ui-pane`.
 
 ---
 
@@ -147,12 +151,22 @@
 - **Deliverable:** Working end-to-end POC.
 - **Testable result:** The full message-flow walkthrough from SETUP.md §3 is observed in the browser. Record the observed event sequence (browser devtools → network → SSE) and paste it into `SETUP.md` §3 as a validation note.
 - **Note:** This step is manual by design — it validates the real-model path that mock tests can't cover.
+- **Result (server-side, 2026-11-05):** ✅ Criteria 1–3 PASS via the scripted suite (`server/scripts/step14-suite.mjs`, real model from `.env`):
+  1. **All 5 runs finished** with `RUN_FINISHED`, no `RUN_ERROR`.
+  2. **4/5 valid A2UI first-try** (P1 needed one validation retry — the model received the error text and self-corrected on its second tool call; the designed validate-and-retry loop working as intended).
+  3. **Follow-up updates the existing surface**: P3 emitted only `updateComponents` targeting `server-metrics` — the same `surfaceId` P1 created.
+  4. **Button round-trip: pending manual browser check** (client-side action; verify in the browser per the walkthrough).
+- **Fix made during this step (surface-context injection):** the first suite run revealed a real gap — `toModelMessages()` skips AG-UI `activity` messages, so on follow-up turns the model never saw the existing `surfaceId` and recreated a fresh surface instead of updating it. Fix: `extractSurfaceContext()` in `chat-route.ts` serializes the latest `a2ui-surface` snapshot's operations and `runUiAgent()`/`buildSystemPrompt()` inject it as a "Current UI state" section into the system prompt. After the fix, follow-ups correctly target the existing surface. Tests: 4 new `extractSurfaceContext` tests + 2 prompt-section tests (43/43 server tests pass).
 
-### Step 15: Automated end-to-end test (server-side, real protocol)
+### Step 15: Automated end-to-end test (server-side, real protocol) — ✅ DONE
 - **Do:** Add an integration test that boots the real Hono app (mock adapter) and drives it exactly like the Angular client does — using `@ag-ui/client`'s `HttpAgent` pointed at the in-process server (or a `node:http` listener on an ephemeral port). Assert the client-side event stream matches the server contract. **Install `@ag-ui/client` as a server devDependency first** (`pnpm --filter server add -D @ag-ui/client`) — pnpm's strict isolation forbids importing it transitively.
 - **Deliverable:** Client-protocol-level integration test.
 - **Automated tests:** `server/src/e2e-agui.test.ts` — `HttpAgent.runAgent()` completes; subscriber receives the full expected event sequence; no `RUN_ERROR`.
 - **Verify:** `pnpm --filter server test` passes (this closes the loop: the same code path the browser uses is now under automated test).
+- **Result:** ✅ 48/48 server tests pass (11 files); build clean. `e2e-agui.test.ts` boots the real app via `@hono/node-server` on an ephemeral port, runs `HttpAgent.runAgent()` with a subscriber, and asserts the full sequence (`RUN_STARTED` first, `RUN_FINISHED` last, no `RUN_ERROR`, tool-call cluster + `ACTIVITY_SNAPSHOT` + text present, `result.newMessages` non-empty).
+- **Critical bug found and fixed (TanStack per-turn `RUN_FINISHED`):** the `HttpAgent` test's AG-UI verifier rejected the stream — TanStack's `chat()` emits a `RUN_FINISHED` chunk **per model turn**, but AG-UI requires exactly one, at the end; everything after the premature one is rejected (`Cannot send event type 'TOOL_CALL_RESULT': The run has already finished`). The raw-SSE tests missed this because they never ran the client verifier — exactly the gap Step 15 exists to close. Fix: new `server/src/run-finish.ts` transform (`singleRunFinish()`) holds back `RUN_FINISHED` chunks and emits a single aggregated one at stream end, with the `RUN_STARTED` runId and usage summed across turns, mapped to AG-UI's field names (`inputTokens`/`outputTokens`) and **array shape** (`usage: TokenUsage[]` — AG-UI 1.0 changed `usage` from object to array; the object form fails `EventSchema` validation). Wired into `chat-route.ts` before `mapA2uiSnapshots`. 4 new transform tests; the outdated ordering assertion in `chat-route.test.ts` (which pinned the buggy order) corrected. Real-model re-verified: stream now shows exactly one `RUN_FINISHED`, after `TOOL_CALL_RESULT`/`ACTIVITY_SNAPSHOT`/text.
+- **Ops note:** a stale dev-server process holding :8787 caused `EADDRINUSE` on tsx-watch reload and served stale code without the env file — kill the port before restarting (`lsof -ti :8787 | xargs kill -9`).
+- **Prompt-quality note for Step 14 iteration:** one canned prompt's text summary echoed raw A2UI JSON (`<a2ui-json> [...]`) instead of a clean summary — candidate guardrail tweak ("summarize in plain prose, never echo the JSON payload").
 
 ### Step 16: Polish + documentation
 - **Do:** Root `README.md` (run instructions from SETUP.md §9, env vars from §8, test commands per workspace). Update `SETUP.md` status from "Plan" to "Implemented (POC)". Clean up TODOs, ensure all tests green in both workspaces, commit.
@@ -166,14 +180,13 @@
 ```
 Step 1 ─► Step 2 ─► Step 3 ─┐
                 └─► Step 4 ─┤
-                            ├─► Step 10 ─► Step 13 ─┐
-        Step 5 ─► Step 6 ─► Step 7 ─► Step 8 ─► Step 9 ─┤
-                            │                           ├─► Step 14 ─► Step 15 ─► Step 16
-                            └───────────────────────────┴─► Step 11 ─► Step 12 ─┘
+                            ├─► Step 10 (incl. 11+12) ─► Step 13 ─┐
+        Step 5 ─► Step 6 ─► Step 7 ─► Step 8 ─► Step 9 ─┤        ├─► Step 14 ─► Step 15 ─► Step 16
+                            │                           └────────┘
 ```
 
-Steps 3/4 can run in parallel after Step 2. Steps 10–12 (client) and 5–9 (server) are
-independent tracks; both must finish before Step 14.
+Steps 3/4 can run in parallel after Step 2. Steps 10 (client, includes 11+12) and
+5–9 (server) are independent tracks; both must finish before Step 14.
 
 ---
 
@@ -183,5 +196,5 @@ independent tracks; both must finish before Step 14.
 |---|---|---|
 | 0 | Smoke tests (server + client scaffold) | — |
 | 1 | A2UI wrapper (SDK), tool, agent (mock adapter), snapshot mapping, SSE route, AG-UI contract tests | `curl` SSE stream |
-| 2 | Component tests (catalog, activity renderer, shell) | Browser chat smoke |
+| 2 | Component tests (CopilotKit config, shell) | Browser chat smoke |
 | 3 | `HttpAgent` end-to-end integration test | Real-model E2E walkthrough |

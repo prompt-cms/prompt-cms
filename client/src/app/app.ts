@@ -1,12 +1,14 @@
 import { Component, signal } from '@angular/core';
-import { RouterOutlet } from '@angular/router';
+import { MatToolbarModule } from '@angular/material/toolbar';
+
+import { CopilotChat } from '@copilotkit/angular';
 
 @Component({
-  imports: [RouterOutlet],
+  imports: [CopilotChat, MatToolbarModule],
   selector: 'app-root',
   styleUrl: './app.css',
   templateUrl: './app.html',
 })
 export class App {
-  protected readonly title = signal('client');
+  protected readonly title = signal('Prompt CMS');
 }
