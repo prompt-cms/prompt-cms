@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+coverage/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Angular / client build artifacts
+.angular/
+client/dist/
+
+# OS / editor
+.DS_Store
+*.log
