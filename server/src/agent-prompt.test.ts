@@ -22,6 +22,18 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('update existing surfaces instead of recreating');
   });
 
+  it('spells out the exact message envelope with a correct catalog ID', () => {
+    expect(prompt).toContain('## Message envelope');
+    expect(prompt).toContain('"version"');
+    expect(prompt).toContain('updateComponents');
+    // The catalog ID must match the vendored spec's $id exactly.
+    expect(prompt).toContain(
+      'https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json',
+    );
+    // The known failure mode is called out explicitly.
+    expect(prompt).toContain('WRONG');
+  });
+
   it('injects the current UI state when surface context is provided', () => {
     const ops = [
       { version: 'v0.9', createSurface: { surfaceId: 'dash-1' } },

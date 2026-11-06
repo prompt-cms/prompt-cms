@@ -3,8 +3,10 @@ import { MatToolbarModule } from '@angular/material/toolbar';
 
 import { CopilotChat } from '@copilotkit/angular';
 
+import { SurfacePane } from './surface/surface-pane';
+
 @Component({
-  imports: [CopilotChat, MatToolbarModule],
+  imports: [CopilotChat, MatToolbarModule, SurfacePane],
   selector: 'app-root',
   styleUrl: './app.css',
   templateUrl: './app.html',

@@ -72,7 +72,7 @@
 |---|---|---|
 | Framework | **Angular** | Team expertise |
 | AG-UI layer | **CopilotKit** (`@copilotkit/angular`) | Chat UI, agent store, and activity-renderer plumbing for free; reference implementation for the A2UI-over-AG-UI pattern. Speaks AG-UI natively via `HttpAgent` |
-| A2UI renderer | **`@a2ui/angular`** (on `@a2ui/web_core`) | Official Angular adapter; `A2uiRendererService`, `SurfaceComponent`, `BasicCatalog` |
+| A2UI renderer | **CopilotKit's built-in A2UI support** (`@copilotkit/angular/a2ui`, on `@a2ui/web_core`) | `basicCatalog` + all 18 Basic Catalog components bundled in `@copilotkit/angular` — no separate `@a2ui/angular` install needed. Surfaces render via `CopilotA2UIActivityRenderer` (hosted directly in the right pane, see §7.2) |
 | Component catalog | **A2UI Basic Catalog** (POC) | Fastest path to a working POC. The Basic Catalog renders its own components — **not** Angular Material. A custom Material catalog (mapping A2UI components → Angular Material) is a post-POC effort |
 | Material Design | Static app shell only (layout, chrome, chat styling) | See note above |
 
@@ -136,8 +136,9 @@ Hono streamSSE writes each event as an SSE frame
   ▼
 Angular: HttpAgent/CopilotKit receives events
   ├─ TEXT_MESSAGE_*  → chat window (streaming text)
-  └─ ACTIVITY_SNAPSHOT → activity renderer → A2uiRendererService
-                          → Basic Catalog renders the UI progressively
+  └─ ACTIVITY_SNAPSHOT → SurfacePane (right pane, NOT inline in chat —
+                          suppression renderer silences the transcript copy)
+                          → CopilotA2UIActivityRenderer → Basic Catalog
   │
   ▼
 User interacts with generated UI (buttons, forms, inputs)
@@ -172,11 +173,12 @@ prompt-cms/
     ├── package.json
     └── src/
         ├── app/
-        │   ├── app.config.ts     # provideCopilotKit, A2UI_RENDERER_CONFIG
-        │   ├── app.component.*   # Material shell + chat + surface area
-        │   └── a2ui/
-        │       ├── activity-renderer.component.ts  # ACTIVITY_SNAPSHOT → A2UI
-        │       └── catalog.ts    # BasicCatalog registration
+        │   ├── app.config.ts     # provideCopilotKit (catalog + suppression renderer)
+        │   ├── app.ts/.html/.css # Material shell: chat pane + surface pane
+        │   └── surface/
+        │       ├── surface-pane.ts            # hosts the latest a2ui-surface snapshot in the right pane
+        │       ├── empty-surface-renderer.ts  # suppresses inline chat rendering
+        │       └── *.spec.ts
         └── main.ts
 ```
 
@@ -228,14 +230,13 @@ pnpm add @tanstack/ai @tanstack/ai-openrouter @a2ui/agent @ag-ui/core@1.0.0 --sa
 ### Client
 
 ```bash
-pnpm add @copilotkit/angular @ag-ui/client @a2ui/angular @a2ui/web_core @angular/material @angular/cdk
+pnpm add @copilotkit/angular @ag-ui/client @angular/material @angular/cdk
 ```
 
 | Package | Purpose |
 |---|---|
-| `@copilotkit/angular` | Chat UI, agent store, activity-renderer plumbing |
+| `@copilotkit/angular` | Chat UI, agent store, A2UI renderer (`/a2ui` subpath: `basicCatalog`, `CopilotA2UIActivityRenderer`) |
 | `@ag-ui/client` | `HttpAgent` (AG-UI transport client) |
-| `@a2ui/angular` + `@a2ui/web_core` | A2UI renderer + Angular adapter (v0.9) |
 | `@angular/material` + `@angular/cdk` | Static app shell styling |
 
 ---
@@ -462,21 +463,40 @@ export const appConfig: ApplicationConfig = {
 };
 ```
 
-### 7.2 Activity renderer (`client/src/app/a2ui/activity-renderer.component.ts`)
+### 7.2 Surface hosting (`client/src/app/surface/`)
 
-A CopilotKit activity renderer registered for `activityType: 'a2ui-surface'`:
-it receives the A2UI operations from `ACTIVITY_SNAPSHOT` and feeds them to
-`A2uiRendererService`, which renders via `SurfaceComponent` + Basic Catalog.
-User interactions (A2UI Actions) are posted back to the agent as new messages.
+The generated UI renders **exclusively in the right pane** — never inline in
+the chat transcript. Two pieces achieve this:
 
-### 7.3 App shell (`app.component.html`)
+1. **Suppression renderer** (`empty-surface-renderer.ts`): an empty
+   `ActivityRenderer` registered via
+   `provideCopilotKit({ renderActivityMessages: [{ activityType: 'a2ui-surface', content: anyActivityContentSchema, component: EmptySurfaceRenderer }] })`.
+   Custom renderers take precedence over CopilotKit's built-in one, so the
+   transcript renders nothing for surface snapshots. (The component must
+   implement the full `ActivityRenderer` contract — `activityType`/`content`/
+   `message`/`agent` inputs — even though it ignores them.)
+2. **Pane host** (`surface-pane.ts`): reads the agent's message store via
+   `injectAgentStore('uiAgent')`, picks the latest
+   `activityType === 'a2ui-surface'` activity message, and hosts it through
+   `CopilotA2UIActivityRenderer` **directly** (standalone component — bypasses
+   renderer resolution, so the suppression doesn't affect it). A placeholder
+   shows until the first snapshot arrives.
+
+Button round-trips are unaffected: `CopilotA2UISurfaceOutlet` bridges A2UI
+actions back to the agent independent of where the renderer is hosted.
+
+### 7.3 App shell (`app.html`)
 
 ```html
 <!-- Material-styled static shell -->
 <mat-toolbar>Prompt CMS</mat-toolbar>
-<div class="layout">
-  <copilot-chat agentId="uiAgent" />   <!-- chat panel -->
-  <a2ui-surface />                     <!-- generated UI area -->
+<div class="panes">
+  <section class="chat-pane">
+    <copilot-chat agentId="uiAgent" />   <!-- chat panel (text only) -->
+  </section>
+  <section class="ui-pane">
+    <app-surface-pane />                 <!-- generated UI area -->
+  </section>
 </div>
 ```
 

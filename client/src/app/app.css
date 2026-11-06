@@ -55,22 +55,6 @@ chat-pane copilot-chat,
   background: #fff;
 }
 
-.ui-placeholder {
-  margin: auto;
-  text-align: center;
-  color: rgba(0, 0, 0, 0.45);
-}
-
-.ui-placeholder .hint {
-  font-size: 0.8125rem;
-}
-
-.ui-placeholder code {
-  background: rgba(0, 0, 0, 0.05);
-  padding: 0.1rem 0.3rem;
-  border-radius: 4px;
-}
-
 /* Responsive: stack panes vertically on narrow screens. */
 @media (max-width: 720px) {
   .panes {

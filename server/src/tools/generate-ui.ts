@@ -15,6 +15,7 @@
 import { toolDefinition } from '@tanstack/ai';
 import { z } from 'zod';
 
+import { normalizeA2uiOperations } from '../a2ui/normalize.js';
 import { validateA2uiPayload } from '../a2ui/index.js';
 
 export const generateUiDef = toolDefinition({
@@ -50,10 +51,15 @@ export const generateUiDef = toolDefinition({
 });
 
 export const generateUi = generateUiDef.server(async ({ operations }) => {
-  const result = validateA2uiPayload(operations);
+  // Tolerant repair of common LLM envelope mistakes (missing `version`,
+  // bare `{surfaceId, components}` payloads) before spec-exact validation.
+  // The normalized ops are what get validated AND returned, so the
+  // ACTIVITY_SNAPSHOT always carries spec-valid operations.
+  const normalized = normalizeA2uiOperations(operations);
+  const result = validateA2uiPayload(normalized);
 
   if (result.ok) {
-    return { status: 'ok' as const, operations };
+    return { status: 'ok' as const, operations: normalized };
   }
   return { status: 'error' as const, errorText: result.errorText };
 });
